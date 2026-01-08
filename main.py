@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, validator
 from typing import List, Optional
-from ai_service import generate_gemini_response
+from app.LLM_Service.ai_service import generate_gemini_response
 from config import settings
 import logging
 
@@ -9,10 +9,10 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Groq AI Microservice")
+app = FastAPI(title="AI assistant")
 
 class Message(BaseModel):
-    role: str    # "user" বা "assistant"
+    role: str    # "user" or "assistant"
     content: str
     
     @validator('role')

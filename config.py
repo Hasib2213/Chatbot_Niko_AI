@@ -1,6 +1,7 @@
 import os
 from dotenv import load_dotenv
-from system_prompt import SYSTEM_PROMPT
+from app.prompts.system_prompt import SYSTEM_PROMPT
+
 
 load_dotenv()
 
