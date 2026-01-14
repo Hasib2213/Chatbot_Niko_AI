@@ -1,27 +1,38 @@
-# Use official Python runtime as base image
-FROM python:3.11-slim
+# ===== Builder Stage =====
+FROM python:3.11-slim as builder
 
-# Set working directory in container
 WORKDIR /app
 
 # Set environment variables
-# Prevents Python from writing pyc files
 ENV PYTHONDONTWRITEBYTECODE=1
-# Prevents Python from buffering stdout and stderr
 ENV PYTHONUNBUFFERED=1
 
-# Install system dependencies
+# Install build dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements.txt
+# Copy requirements
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies to user directory
+RUN pip install --user --no-cache-dir -r requirements.txt
 
-# Copy project files
+
+# ===== Runtime Stage =====
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PATH=/root/.local/bin:$PATH
+
+# Copy only installed dependencies from builder
+COPY --from=builder /root/.local /root/.local
+
+# Copy application code
 COPY . .
 
 # Expose port
