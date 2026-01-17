@@ -46,17 +46,7 @@ class AIResponse(BaseModel):
 
 class SummaryRequest(BaseModel):
     thread_id: str
-    messages: List[Message]  # Last 10 messages from thread
     user_id: str
-    
-    @field_validator('messages')
-    @classmethod
-    def validate_messages(cls, v):
-        if not v or len(v) == 0:
-            raise ValueError('messages list cannot be empty')
-        if len(v) > 10:
-            raise ValueError('messages list cannot exceed 10 messages')
-        return v
     
     @field_validator('thread_id')
     @classmethod
@@ -75,4 +65,29 @@ class SummaryRequest(BaseModel):
 class SummaryResponse(BaseModel):
     summary: str
     thread_id: str
-    
+    success: bool = True
+    error: Optional[str] = None
+
+class ThreadInfo(BaseModel):
+    thread_id: str
+    user_id: str
+    title: str = ""
+    message_count: int = 0
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+class ThreadListResponse(BaseModel):
+    threads: List[ThreadInfo]
+    total: int
+    success: bool = True
+
+class ThreadDeleteResponse(BaseModel):
+    thread_id: str
+    success: bool = True
+    message: str = "Thread deleted successfully"
+
+class ContextAwareChatRequest(BaseModel):
+    """Chat request with optional thread_id for context-aware responses"""
+    messages: List[Message]
+    user_id: str
+    thread_id: Optional[str] = None  # Optional: auto-generated if not provided

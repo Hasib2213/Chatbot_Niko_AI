@@ -4,3 +4,6 @@ groq
 python-dotenv
 pydantic>=2.0
 requests
+pymongo
+streamlit
+pandas

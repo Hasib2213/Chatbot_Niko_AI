@@ -1,6 +1,7 @@
 from groq import Groq
 from config import settings
-from typing import List
+from app.prompts.system_prompt import SYSTEM_PROMPT, SUMMARY_PROMPT
+from typing import List, Dict
 import logging
 
 # Configure logging
@@ -38,7 +39,7 @@ class GroqService:
             formatted_messages = [
                 {
                     "role": "system",
-                    "content": settings.SYSTEM_PROMPT
+                    "content": SYSTEM_PROMPT
                 }
             ]
             
@@ -85,12 +86,58 @@ async def generate_gemini_response(messages: List[dict], user_id: str) -> str:
         raise RuntimeError("GroqService is not available")
     return await groq_service.generate_response(messages, user_id)
 
-async def generate_summary(messages: List[dict], thread_id: str, user_id: str) -> str:
+async def get_thread_messages(thread_id: str, user_id: str, limit: int = 10) -> List[Dict]:
+    """
+    Fetch messages from a thread (last 'limit' messages).
+    
+    Uses MongoDB database to retrieve thread messages.
+    
+    Args:
+        thread_id: ID of the thread
+        user_id: ID of the user
+        limit: Number of messages to fetch (default: 10)
+        
+    Returns:
+        List of messages with 'role' and 'content' fields
+        
+    Raises:
+        RuntimeError: If database client is not available
+        
+    Example return format:
+        [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi there"}
+        ]
+    """
+    try:
+        from app.database import db_client
+        
+        if not db_client or not db_client.is_connected():
+            raise RuntimeError(
+                "Database client not available. "
+                "Please ensure MongoDB is running and configured."
+            )
+        
+        # Fetch messages from database
+        messages = db_client.get_thread_messages(thread_id, user_id, limit=limit)
+        
+        if not messages:
+            logger.warning(f"No messages found in thread {thread_id} for user {user_id}")
+        
+        return messages
+        
+    except RuntimeError as e:
+        logger.error(f"Database runtime error: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching thread messages: {str(e)}")
+        raise RuntimeError(f"Failed to fetch messages: {str(e)}")
+
+async def generate_summary(thread_id: str, user_id: str) -> str:
     """
     Generate a summary of the last 10 messages in a thread.
     
     Args:
-        messages: List of messages (dict with 'role' and 'content')
         thread_id: ID of the thread
         user_id: ID of the user
         
@@ -101,30 +148,33 @@ async def generate_summary(messages: List[dict], thread_id: str, user_id: str) -
         raise RuntimeError("GroqService is not available")
     
     try:
+        # Fetch last 10 messages from thread via database
+        messages = await get_thread_messages(thread_id, user_id, limit=10)
+        
         if not messages:
-            raise ValueError("Messages list cannot be empty")
+            raise ValueError(f"No messages found in thread {thread_id}")
+        
+        logger.info(f"Retrieved {len(messages)} messages from thread {thread_id}")
         
         # Prepare the conversation for summarization
         conversation_text = "\n".join([
-            f"{msg['role'].upper()}: {msg['content']}"
-            for msg in messages[-10:]  # Last 10 messages
+            f"{msg.get('role', 'user').upper()}: {msg.get('content', '')}"
+            for msg in messages
         ])
         
-        # Create summary prompt
-        summary_prompt = f"""Please provide a concise summary of the following conversation. 
-The summary should be clear, accurate, and capture the main points discussed between the user and assistant.
-Keep the summary to 3-5 sentences maximum.
+        # Create summary prompt with structured format
+        summary_prompt = f"""Please summarize the following conversation thread.
 
 Conversation:
 {conversation_text}
 
-Summary:"""
+{SUMMARY_PROMPT}"""
         
         # Prepare messages for API
         formatted_messages = [
             {
                 "role": "system",
-                "content": "You are a helpful assistant that creates concise summaries of conversations."
+                "content": SUMMARY_PROMPT
             },
             {
                 "role": "user",
@@ -150,9 +200,83 @@ Summary:"""
         
         return summary
         
+    except NotImplementedError as e:
+        logger.error(f"Database not implemented: {str(e)}")
+        raise
     except ValueError as e:
         logger.warning(f"Validation error for thread {thread_id}: {str(e)}")
         raise
     except Exception as e:
         logger.error(f"Error generating summary for thread {thread_id}: {str(e)}")
+        raise
+
+async def generate_context_aware_response(messages: List[dict], thread_id: str, user_id: str) -> str:
+    """
+    Generate a response with thread context awareness.
+    Reads previous thread summary (if exists) and uses it as context.
+    
+    Args:
+        messages: List of messages (dict with 'role' and 'content')
+        thread_id: ID of the thread
+        user_id: ID of the user
+        
+    Returns:
+        Context-aware response string
+    """
+    if not groq_service:
+        raise RuntimeError("GroqService is not available")
+    
+    try:
+        if not messages:
+            raise ValueError("Messages list cannot be empty")
+        
+        # Fetch thread history for context
+        thread_history = await get_thread_messages(thread_id, user_id, limit=20)
+        
+        # Build context from thread history
+        context_text = ""
+        if thread_history and len(thread_history) > 0:
+            logger.info(f"Found {len(thread_history)} previous messages for context")
+            context_text = "\n\n=== PREVIOUS CONVERSATION CONTEXT ===\n"
+            for msg in thread_history[-10:]:  # Last 10 for context
+                context_text += f"{msg.get('role', 'user').upper()}: {msg.get('content', '')}\n"
+            context_text += "=== END OF CONTEXT ===\n\n"
+        
+        # Prepare messages with context
+        formatted_messages = [
+            {
+                "role": "system",
+                "content": SYSTEM_PROMPT + (f"\n\nThread Context:\n{context_text}" if context_text else "")
+            }
+        ]
+        
+        # Add all messages
+        for msg in messages:
+            if not isinstance(msg, dict) or "role" not in msg or "content" not in msg:
+                raise ValueError("Invalid message format")
+            formatted_messages.append({
+                "role": msg["role"],
+                "content": msg["content"]
+            })
+        
+        logger.info(f"Calling Groq API with context for thread {thread_id}, user {user_id}")
+        
+        # Call Groq API
+        response = groq_service.client.chat.completions.create(
+            model=groq_service.model_name,
+            messages=formatted_messages,
+            temperature=settings.TEMPERATURE,
+            max_tokens=settings.MAX_TOKENS
+        )
+        
+        if not response.choices or not response.choices[0].message:
+            raise ValueError("Empty response from Groq API")
+        
+        return response.choices[0].message.content.strip()
+        
+    except ValueError as e:
+        logger.warning(f"Validation error for thread {thread_id}: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"Error generating context-aware response: {str(e)}")
         raise
