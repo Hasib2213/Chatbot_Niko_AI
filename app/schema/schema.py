@@ -41,5 +41,38 @@ class AIRequest(BaseModel):
 
 class AIResponse(BaseModel):
     response: str
-    # success: bool
-    # error: Optional[str] = None
+    success: bool = True
+    error: Optional[str] = None
+
+class SummaryRequest(BaseModel):
+    thread_id: str
+    messages: List[Message]  # Last 10 messages from thread
+    user_id: str
+    
+    @field_validator('messages')
+    @classmethod
+    def validate_messages(cls, v):
+        if not v or len(v) == 0:
+            raise ValueError('messages list cannot be empty')
+        if len(v) > 10:
+            raise ValueError('messages list cannot exceed 10 messages')
+        return v
+    
+    @field_validator('thread_id')
+    @classmethod
+    def validate_thread_id(cls, v):
+        if not v or not v.strip():
+            raise ValueError('thread_id cannot be empty')
+        return v
+    
+    @field_validator('user_id')
+    @classmethod
+    def validate_user_id(cls, v):
+        if not v or not v.strip():
+            raise ValueError('user_id cannot be empty')
+        return v
+
+class SummaryResponse(BaseModel):
+    summary: str
+    thread_id: str
+    

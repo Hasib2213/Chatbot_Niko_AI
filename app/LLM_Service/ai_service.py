@@ -84,3 +84,75 @@ async def generate_gemini_response(messages: List[dict], user_id: str) -> str:
     if not groq_service:
         raise RuntimeError("GroqService is not available")
     return await groq_service.generate_response(messages, user_id)
+
+async def generate_summary(messages: List[dict], thread_id: str, user_id: str) -> str:
+    """
+    Generate a summary of the last 10 messages in a thread.
+    
+    Args:
+        messages: List of messages (dict with 'role' and 'content')
+        thread_id: ID of the thread
+        user_id: ID of the user
+        
+    Returns:
+        Summary string
+    """
+    if not groq_service:
+        raise RuntimeError("GroqService is not available")
+    
+    try:
+        if not messages:
+            raise ValueError("Messages list cannot be empty")
+        
+        # Prepare the conversation for summarization
+        conversation_text = "\n".join([
+            f"{msg['role'].upper()}: {msg['content']}"
+            for msg in messages[-10:]  # Last 10 messages
+        ])
+        
+        # Create summary prompt
+        summary_prompt = f"""Please provide a concise summary of the following conversation. 
+The summary should be clear, accurate, and capture the main points discussed between the user and assistant.
+Keep the summary to 3-5 sentences maximum.
+
+Conversation:
+{conversation_text}
+
+Summary:"""
+        
+        # Prepare messages for API
+        formatted_messages = [
+            {
+                "role": "system",
+                "content": "You are a helpful assistant that creates concise summaries of conversations."
+            },
+            {
+                "role": "user",
+                "content": summary_prompt
+            }
+        ]
+        
+        logger.info(f"Generating summary for thread {thread_id}, user {user_id}")
+        
+        # Call Groq API for summary
+        response = groq_service.client.chat.completions.create(
+            model=groq_service.model_name,
+            messages=formatted_messages,
+            temperature=0.3,  # Lower temperature for more consistent summaries
+            max_tokens=300
+        )
+        
+        if not response.choices or not response.choices[0].message:
+            raise ValueError("Empty response from Groq API")
+        
+        summary = response.choices[0].message.content.strip()
+        logger.info(f"Summary generated successfully for thread {thread_id}")
+        
+        return summary
+        
+    except ValueError as e:
+        logger.warning(f"Validation error for thread {thread_id}: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"Error generating summary for thread {thread_id}: {str(e)}")
+        raise
