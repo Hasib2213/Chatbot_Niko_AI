@@ -351,10 +351,10 @@ async def thread_messages_combined(
         else:
             logger.info(f"Fetch mode: Retrieving messages from thread {thread_id}, user {user_id}")
             
-            # message_limit = request.limit or 100
+          
             
             # Get messages from thread
-            messages_list = db_client.get_thread_messages(thread_id, user_id, limit=message_limit)
+            messages_list = db_client.get_thread_messages(thread_id, user_id)
             
             # Get thread summary for context
             thread_summary = None
